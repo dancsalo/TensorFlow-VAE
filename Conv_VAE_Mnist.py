@@ -10,14 +10,14 @@ Purpose: Implement Convolutional VAE for MNIST dataset to demonstrate NNClasses 
 import sys
 sys.path.insert(1, '../')
 
-from NNLayers import Layers
-from NNModel import Model
-from NNData import Data
+from tensorbase.base import Model
+from tensorbase.base import Layers
+from tensorbase.data import Mnist
 
 import tensorflow as tf
 import numpy as np
 import scipy.misc
-from MNIST import Mnist
+
 
 # Global Dictionary of Flags
 flags = {
@@ -121,8 +121,6 @@ class ConvVae(Model):
         self.summary, self.loss, self.x_recon, _ =\
             self.sess.run([self.merged, self.cost, self.x_hat, self.optimizer],
                           feed_dict={self.x: self.train_batch_x, self.epsilon: norm,self.lr: 0.01})
-        print(np.shape(self.x_recon))
-        print(np.shape(self.train_batch_x))
 
     def _record_train_metrics(self):
         for j in range(1):
