@@ -8,11 +8,11 @@ Purpose: Implement Convolutional VAE for MNIST dataset to demonstrate NNClasses 
 """
 
 import sys
-sys.path.insert(1, '../')
+sys.path.append('../')
 
-from tensorbase.base import Model
-from tensorbase.base import Layers
-from tensorbase.data import Mnist
+from TensorBase.tensorbase.base import Model
+from TensorBase.tensorbase.base import Layers
+from TensorBase.tensorbase.data import Mnist
 
 import tensorflow as tf
 import numpy as np
