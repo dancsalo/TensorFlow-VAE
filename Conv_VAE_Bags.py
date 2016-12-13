@@ -42,11 +42,12 @@ class ConvVae(Model):
     def __init__(self, flags_input, run_num):
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
-        image_dict = pickle.load(flags['data_directory'] + 'image_dict.pickle')
+        with open(flags['data_directory'] + 'image_dict.pickle', 'rb') as pickle_file:
+            image_dict = pickle.load(pickle_file)
         self.data = Weapons(image_dict, flags_input)
 
     def _set_placeholders(self):
-        self.x = tf.placeholder(tf.float32, [None, flags['image_dim'], flags['image_dim'], 1], name='x')
+        self.x = tf.placeholder(tf.float32, [None, flags['image_dim'], flags['image_dim'], 3], name='x')
         self.y = tf.placeholder(tf.int32, shape=[1])
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         self.lr = tf.placeholder(tf.float32, name='learning_rate')
