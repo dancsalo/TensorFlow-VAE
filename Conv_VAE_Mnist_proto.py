@@ -105,14 +105,13 @@ class ConvVae(Model):
     def _optimizer(self):
         epsilon = 1e-8
         global_step = tf.Variable(0, trainable=False)
-        learning_rate = tf.train.exponential_decay(flags['starter_lr'], global_step,
-                                                   100000, 0.96, staircase=True)
+        learning_rate = tf.train.exponential_decay(flags['starter_lr'], global_step, 100000, 0.96, staircase=True)
         const = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
         self.recon = const * tf.reduce_sum(tf.squared_difference(self.x, self.x_hat))
         self.vae = const * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
         self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.weight)
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost, global_step=self.global_step)
 
     def _generate_train_batch(self):
         label, image = self.read_and_decode_single_example(self.flags['data_file'])
