@@ -24,6 +24,7 @@ flags = {
     'data_directory': 'MNIST_data/',
     'save_directory': 'summaries/',
     'model_directory': 'conv_vae/',
+    'num_labels': 1000,
     'restore': False,
     'restore_file': 'start.ckpt',
     'datasets': 'MNIST',
@@ -32,8 +33,8 @@ flags = {
     'num_classes': 10,
     'batch_size': 128,
     'display_step': 500,
+    'starter_lr': 0.001,
     'weight_decay': 1e-4,
-    'lr_decay': 0.99,
     'lr_iters': [(1e-3, 10000), (1e-4, 10000), (1e-5, 10000)],
     'run_num': 1,
 }
@@ -44,6 +45,7 @@ class ConvVae(Model):
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
         self.data = Mnist(flags_input)
+        tf.train.start_queue_runners(sess=self.sess)
 
     def _set_placeholders(self):
         self.x = tf.placeholder(tf.float32, [None, flags['image_dim'], flags['image_dim'], 1], name='x')
@@ -102,27 +104,30 @@ class ConvVae(Model):
 
     def _optimizer(self):
         epsilon = 1e-8
+        global_step = tf.Variable(0, trainable=False)
+        learning_rate = tf.train.exponential_decay(flags['starter_lr'], global_step,
+                                                   100000, 0.96, staircase=True)
         const = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
         self.recon = const * tf.reduce_sum(tf.squared_difference(self.x, self.x_hat))
         self.vae = const * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
         self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.weight)
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.cost)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost)
 
     def _generate_train_batch(self):
-        _, self.train_batch_x = self.data.next_train_batch(self.flags['batch_size'])
+        label, image = self.read_and_decode_single_example(self.flags['data_file'])
+        image = tf.cast(image, tf.float32) / 255.
+        self.train_batch_y, self.train_batch_x = tf.train.shuffle_batch([label, image],
+                                                                        capacity=2000,
+                                                                        batch_size=self.flags['batch_size'],
+                                                                        min_after_dequeue=1000)
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
 
     def _run_train_iter(self):
-        self.learn_rate = self.learn_rate * self.flags['lr_decay']
-        self.summary, _ = self.sess.run([self.merged, self.optimizer],
-                                   feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm,
-                                              self.lr: })
+        self.summary, _ = self.sess.run([self.merged, self.optimizer])
 
     def _run_train_summary_iter(self):
-        self.summary, self.loss, self.x_recon, _ =\
-            self.sess.run([self.merged, self.cost, self.x_hat, self.optimizer],
-                          feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm, self.lr: self.learn_rate})
+        self.summary, self.loss, self.x_recon, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.optimizer])
 
     def _record_train_metrics(self):
         for j in range(1):
@@ -131,6 +136,22 @@ class ConvVae(Model):
             scipy.misc.imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '.png',
                               np.squeeze(self.x_recon[j]))
         self.print_log("Batch Number: " + str(self.step) + ", Image Loss= " + "{:.6f}".format(self.loss))
+
+    @staticmethod
+    def read_and_decode_single_example(filename):
+        filename_queue = tf.train.string_input_producer([filename],num_epochs=None)
+        reader = tf.TFRecordReader()
+        _, serialized_example = reader.read(filename_queue)
+        features = tf.parse_single_example(
+            serialized_example,
+            features={
+                'label': tf.FixedLenFeature([10], tf.int64),
+                'image': tf.FixedLenFeature([28, 28], tf.int64)
+            })
+        # now return the converted data
+        label = features['label']
+        image = features['image']
+        return label, image
 
 
 def main():
