@@ -84,6 +84,7 @@ class ConvVae(Model):
             print(z.get_shape())
             mean, stddev = tf.split(1, 2, z)
             stddev = tf.sqrt(tf.exp(stddev))
+            logits = tf.nn.softmax(mean)
             input_sample = mean + self.epsilon * stddev
         decoder = Layers(tf.expand_dims(tf.expand_dims(input_sample, 1), 1))
         decoder.deconv2d(3, 128, padding='VALID')
@@ -91,14 +92,14 @@ class ConvVae(Model):
         decoder.deconv2d(3, 64, stride=2)
         decoder.deconv2d(3, 64, stride=2)
         decoder.deconv2d(5, 1, activation_fn=tf.nn.tanh, s_value=None)
-        return decoder.get_output(), mean, stddev
+        return decoder.get_output(), mean, stddev, logits
 
     def _network(self):
         with tf.variable_scope("model"):
             self.latent = self._encoder(x=self.x)
-            self.x_hat, self.mean, self.stddev = self._decoder(z=self.latent)
+            self.x_hat, self.mean, self.stddev, self.logits = self._decoder(z=self.latent)
         with tf.variable_scope("model", reuse=True):
-            self.x_gen, _, _ = self._decoder(z=None)
+            self.x_gen, _, _, _ = self._decoder(z=None)
 
     def _optimizer(self):
         epsilon = 1e-8
@@ -113,15 +114,6 @@ class ConvVae(Model):
         self.train_batch_y, self.train_batch_x = self.data.next_train_batch(self.flags['batch_size'])
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
 
-    def _generate_valid_batch(self):
-        self.valid_batch_y, valid_batch_x, valid_number, batch_size = self.data.next_valid_batch(self.flags['batch_size'])
-        return valid_number
-
-    def _generate_test_batch(self):
-        self.test_batch_y, test_batch_x, test_number, batch_size = self.data.next_test_batch(self.flags['batch_size'])
-        self.test_batch_x = np.reshape(test_batch_x, [batch_size, self.flags['image_dim'], self.flags['image_dim'], 1])
-        return test_number
-
     def _run_train_iter(self):
         self.learn_rate = self.learn_rate * self.flags['lr_decay']
         self.summary, _ = self.sess.run([self.merged, self.optimizer],
@@ -132,34 +124,6 @@ class ConvVae(Model):
         self.summary, self.loss, self.x_recon, _ =\
             self.sess.run([self.merged, self.cost, self.x_hat, self.optimizer],
                           feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm, self.lr: self.learn_rate})
-
-    def _run_valid_iter(self):
-        logits = self.sess.run([self.logits], feed_dict={self.x: self.valid_batch_x})
-        predictions = np.reshape(logits, [-1, self.flags['num_classes']])
-        correct_prediction = np.equal(np.argmax(self.valid_batch_y, 1), np.argmax(predictions, 1))
-        self.valid_results = np.concatenate((self.valid_results, correct_prediction))
-
-    def _run_test_iter(self):
-        logits = self.sess.run([self.logits], feed_dict={self.x: self.test_batch_x})
-        predictions = np.reshape(logits, [-1, self.flags['num_classes']])
-        correct_prediction = np.equal(np.argmax(self.test_batch_y, 1), np.argmax(predictions, 1))
-        self.test_results = np.concatenate((self.test_results, correct_prediction))
-
-    def _record_valid_metrics(self):
-        accuracy = np.mean(self.valid_results)
-        self.print_log("Accuracy on Validation Set: %f" % accuracy)
-        file = open(self.flags['restore_directory'] + 'ValidAccuracy.txt', 'w')
-        file.write('Test set accuracy:')
-        file.write(str(accuracy))
-        file.close()
-
-    def _record_test_metrics(self):
-        accuracy = np.mean(self.test_results)
-        self.print_log("Accuracy on Test Set: %f" % accuracy)
-        file = open(self.flags['restore_directory'] + 'TestAccuracy.txt', 'w')
-        file.write('Test set accuracy:')
-        file.write(str(accuracy))
-        file.close()
 
     def _record_train_metrics(self):
         for j in range(1):
