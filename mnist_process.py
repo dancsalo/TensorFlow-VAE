@@ -24,7 +24,7 @@ for num_labels in [100, 300, 1000, 5000]:
         writer = tf.python_io.TFRecordWriter("mnist_" + str(num_labels) + "_" + name + ".tfrecords")
         # iterate over each example
         # wrap with tqdm for a progress bar
-        for example_idx in tqdm(range(mnist.train.num_examples)):
+        for example_idx in tqdm(range(len(data[0]))):
             pixels = data[0][example_idx].astype("int64")
             true_label = data[1][example_idx].astype("int64")
             label = np.zeros(num_classes).astype("int64")

@@ -26,13 +26,13 @@ flags = {
     'model_directory': 'conv_vae/',
     'train_data_file': 'mnist_1000_train.tfrecords',
     'valid_data_file': 'mnist_1000_valid.tfrecords',
-    'test_data_file': 'mnist_1000_tests.tfrecords',
+    'test_data_file': 'mnist_1000_test.tfrecords',
     'num_labels': 1000,
     'restore': False,
     'restore_file': 'start.ckpt',
     'datasets': 'MNIST',
     'image_dim': 28,
-    'hidden_size': 64,
+    'hidden_size': 5,
     'num_classes': 10,
     'batch_size': 128,
     'display_step': 500,
@@ -49,7 +49,8 @@ class ConvVae(Model):
         self.print_log("Seed: %d" % flags['seed'])
         tf.train.start_queue_runners(sess=self.sess)
 
-    def _define_data(self):
+    def _set_placeholders(self):
+        self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         label_tr, image_tr = self.read_and_decode_single_example(self.flags['train_data_file'])
         image_tr = tf.cast(image_tr, tf.float32) / 255.
         self.train_y, train_x = tf.train.shuffle_batch([label_tr, image_tr], capacity=2000, batch_size=self.flags['batch_size'],
@@ -70,7 +71,7 @@ class ConvVae(Model):
         self.num_test_images = 10000
 
     @staticmethod
-    def img_norm(x):
+    def img_norm(x, epsilon=1e-6):
         """
         :param x: input feature map stack
         :param scope: name of tensorflow scope
@@ -78,13 +79,9 @@ class ConvVae(Model):
         :return: output feature map stack
         """
         # Calculate batch mean and variance
-        m = x.mean(axis=(1, 2, 3))
-        s = x.std(axis=(1, 2, 3))
-        out = [(x[i, :, :, :] - m[i]) / s[i] for i in range(np.shape(x)[0])]
-        return out
-
-    def _set_placeholders(self):
-        self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
+        mean, var = tf.nn.moments(x,axes=[0,1,2], keep_dims=True)
+        out = (x -mean) / tf.sqrt(var + epsilon)
+        return tf.expand_dims(out, 3)
 
     def _set_summaries(self):
         tf.scalar_summary("Total Loss", self.cost)
@@ -93,7 +90,7 @@ class ConvVae(Model):
         tf.scalar_summary("Weight Decay Loss", self.weight)
         tf.histogram_summary("Mean", self.mean)
         tf.histogram_summary("Stddev", self.stddev)
-        tf.image_summary("x", self.x)
+        tf.image_summary("train_x", self.train_x)
         tf.image_summary("x_hat", self.x_hat)
 
     def _encoder(self, x):
@@ -145,7 +142,7 @@ class ConvVae(Model):
     @staticmethod
     def split_y(train_y, true_y):
         inds = list()
-        for ind in range(len(train_y)):
+        for ind in range(train_y.get_shape()[0]):
             if np.sum(train_y[ind]) == 1:
                 inds.append(ind)
         return train_y[inds], true_y[inds]
@@ -153,15 +150,15 @@ class ConvVae(Model):
     def _optimizer(self):
         epsilon = 1e-8
         global_step = tf.Variable(0, trainable=False)
-        learning_rate = tf.train.exponential_decay(flags['starter_lr'], global_step, 100000, 0.96, staircase=True)
+        learning_rate = tf.train.exponential_decay(self.flags['starter_lr'], global_step, 100000, 0.96, staircase=True)
         const = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
-        train_y, true_y = self.split_y(self.latent, self.train_y)
+        train_y, true_y = self.split_y(tf.reshape(self.latent, [-1, self.flags['num_classes']]), self.train_y)
         self.xentropy = const * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(true_y, train_y, name='xentropy'))
-        self.recon = const * tf.reduce_sum(tf.squared_difference(self.x, self.x_hat))
+        self.recon = const * tf.reduce_sum(tf.squared_difference(self.train_x, self.x_hat))
         self.vae = const * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
         self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.weight)
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost, global_step=self.global_step)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost, global_step=global_step)
 
     def _run_train_iter(self):
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
@@ -221,7 +218,7 @@ class ConvVae(Model):
         # now return the converted data
         label = features['label']
         image = features['image']
-        return label, image
+        return tf.cast(label, tf.float32), image
 
 
 def main():
