@@ -32,9 +32,8 @@ flags = {
     'num_classes': 10,
     'batch_size': 128,
     'display_step': 500,
-    'weight_decay': 1e-4,
-    'lr_decay': 0.99,
-    'lr_iters': [(1e-3, 10000), (1e-4, 10000), (1e-5, 10000)],
+    'weight_decay': 1e-6,
+    'lr_iters': [(1e-3, 10000)],
     'run_num': 1,
 }
 
@@ -49,7 +48,6 @@ class ConvVae(Model):
         self.x = tf.placeholder(tf.float32, [None, flags['image_dim'], flags['image_dim'], 1], name='x')
         self.y = tf.placeholder(tf.int32, shape=[1])
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
-        self.lr = tf.placeholder(tf.float32, name='learning_rate')
 
     def _set_summaries(self):
         tf.scalar_summary("Total Loss", self.cost)
@@ -84,7 +82,6 @@ class ConvVae(Model):
             print(z.get_shape())
             mean, stddev = tf.split(1, 2, z)
             stddev = tf.sqrt(tf.exp(stddev))
-            logits = tf.nn.softmax(mean)
             input_sample = mean + self.epsilon * stddev
         decoder = Layers(tf.expand_dims(tf.expand_dims(input_sample, 1), 1))
         decoder.deconv2d(3, 128, padding='VALID')
@@ -92,14 +89,14 @@ class ConvVae(Model):
         decoder.deconv2d(3, 64, stride=2)
         decoder.deconv2d(3, 64, stride=2)
         decoder.deconv2d(5, 1, activation_fn=tf.nn.tanh, s_value=None)
-        return decoder.get_output(), mean, stddev, logits
+        return decoder.get_output(), mean, stddev
 
     def _network(self):
         with tf.variable_scope("model"):
             self.latent = self._encoder(x=self.x)
-            self.x_hat, self.mean, self.stddev, self.logits = self._decoder(z=self.latent)
+            self.x_hat, self.mean, self.stddev = self._decoder(z=self.latent)
         with tf.variable_scope("model", reuse=True):
-            self.x_gen, _, _, _ = self._decoder(z=None)
+            self.x_gen, _, _ = self._decoder(z=None)
 
     def _optimizer(self):
         epsilon = 1e-8
@@ -108,22 +105,20 @@ class ConvVae(Model):
         self.vae = const * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
         self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.weight)
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.cost)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.flags['lr_iters'][0][0]).minimize(self.cost)
 
     def _generate_train_batch(self):
         self.train_batch_y, self.train_batch_x = self.data.next_train_batch(self.flags['batch_size'])
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
 
     def _run_train_iter(self):
-        self.learn_rate = self.learn_rate * self.flags['lr_decay']
         self.summary, _ = self.sess.run([self.merged, self.optimizer],
-                                   feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm,
-                                              self.lr: self.learn_rate})
+                                   feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm})
 
     def _run_train_summary_iter(self):
         self.summary, self.loss, self.x_recon, _ =\
             self.sess.run([self.merged, self.cost, self.x_hat, self.optimizer],
-                          feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm, self.lr: self.learn_rate})
+                          feed_dict={self.x: self.train_batch_x, self.epsilon: self.norm})
 
     def _record_train_metrics(self):
         for j in range(1):
@@ -132,6 +127,12 @@ class ConvVae(Model):
             scipy.misc.imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '.png',
                               np.squeeze(self.x_recon[j]))
         self.print_log("Batch Number: " + str(self.step) + ", Image Loss= " + "{:.6f}".format(self.loss))
+        print(self.train_batch_x[j].mean)
+        print(self.x_recon[j].mean)
+        print(self.train_batch_x[j].min)
+        print(self.x_recon[j].min)
+        print(self.train_batch_x[j].max)
+        print(self.x_recon[j].max)
 
 
 def main():
