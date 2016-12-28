@@ -34,7 +34,7 @@ flags = {
     'display_step': 500,
     'weight_decay': 1e-6,
     'lr_iters': [(1e-3, 10000)],
-    'run_num': 1,
+    'run_num': 2,
 }
 
 
@@ -50,14 +50,14 @@ class ConvVae(Model):
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
 
     def _set_summaries(self):
-        tf.scalar_summary("Total Loss", self.cost)
-        tf.scalar_summary("Reconstruction Loss", self.recon)
-        tf.scalar_summary("VAE Loss", self.vae)
-        tf.scalar_summary("Weight Decay Loss", self.weight)
-        tf.histogram_summary("Mean", self.mean)
-        tf.histogram_summary("Stddev", self.stddev)
-        tf.image_summary("x", self.x)
-        tf.image_summary("x_hat", self.x_hat)
+        tf.summary.scalar("Total Loss", self.cost)
+        tf.summary.scalar("Reconstruction Loss", self.recon)
+        tf.summary.scalar("VAE Loss", self.vae)
+        tf.summary.scalar("Weight Decay Loss", self.weight)
+        tf.summary.histogram("Mean", self.mean)
+        tf.summary.histogram("Stddev", self.stddev)
+        tf.summary.image("x", self.x)
+        tf.summary.image("x_hat", self.x_hat)
 
     def _encoder(self, x):
         encoder = Layers(x)
