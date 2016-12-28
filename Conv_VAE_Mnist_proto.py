@@ -56,12 +56,12 @@ class ConvVae(Model):
 
     def _set_placeholders(self):
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
-        label_tr, image_tr = self.read_and_decode_single_example(self.flags['train_data_file'], self.flags['num_epochs'])
-        self.train_y, self.train_x = tf.train.shuffle_batch([label_tr, image_tr], capacity=2000, batch_size=self.flags['batch_size'], num_threads = 2, min_after_dequeue=1000)     
-        label_v, image_v = self.read_and_decode_single_example(self.flags['valid_data_file'], 1)
-        self.valid_y, self.valid_x = tf.train.batch([label_v, image_v], capacity=2000, batch_size=self.flags['batch_size'], allow_smaller_final_batch=True)
-        label_t, image_t = self.read_and_decode_single_example(self.flags['test_data_file'], 1)
-        self.test_y, self.test_x = tf.train.batch([label_t, image_t], capacity=2000, batch_size=self.flags['batch_size'], allow_smaller_final_batch=True)
+        label_tr, image_tr = self.read_and_decode(self.flags['train_data_file'], self.flags['num_epochs'])
+        self.train_y, self.train_x = tf.train.shuffle_batch([label_tr, self.img_norm(image_tr)], capacity=2000, batch_size=self.flags['batch_size'], num_threads = 2, min_after_dequeue=1000)     
+        label_v, image_v = self.read_and_decode(self.flags['valid_data_file'], 1)
+        self.valid_y, self.valid_x = tf.train.batch([label_v, self.img_norm(image_v)], capacity=2000, batch_size=self.flags['batch_size'], allow_smaller_final_batch=True)
+        label_t, image_t = self.read_and_decode(self.flags['test_data_file'], 1)
+        self.test_y, self.test_x = tf.train.batch([label_t, self.img_norm(image_t)], capacity=2000, batch_size=self.flags['batch_size'], allow_smaller_final_batch=True)
         self.num_train_images = 55000
         self.num_valid_images = 5000
         self.num_test_images = 10000
@@ -168,7 +168,30 @@ class ConvVae(Model):
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, self.loss, self.x_recon, true_y, train_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.true_y, self.train_y, self.optimizer], feed_dict={self.epsilon: self.norm})
 
-    def train(self):
+    def training(self):
+        self.step = 0
+        threads = tf.train.start_queue_runners(sess=self.sess)
+        coord = tf.train.Coordinator()
+        for i in range(550 * 1):
+            start_time = time.time()
+            self._run_train_iter()
+            self.duration = time.time() - start_time
+
+            if self.step % self.flags['display_step'] == 0:
+                self._run_train_summary_iter()
+                self._record_training_step()
+                self._record_train_metrics()
+            self.step += 1
+            print(self.step)
+        self.print_log('Done training for %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
+        coord.request_stop()
+        self._save_model(section=1)        
+
+        # Wait for threads to finish.
+        coord.join(threads)
+        self.sess.close()
+
+    def train_ing(self):
         self.step = 0
         threads = tf.train.start_queue_runners(sess=self.sess)
         coord = tf.train.Coordinator()
@@ -202,9 +225,9 @@ class ConvVae(Model):
         coord = tf.train.Coordinator()
         try:
             while not coord.should_stop():
-                logits, true = self.sess.run([self.logits_valid, self.valid_y], feed_dict={self.epsilon: self.norm})
+                logits, true = self.sess.run([self.logits_valid, self.valid_y])
                 predictions = np.reshape(logits, [-1, self.flags['num_classes']])
-                correct_prediction = np.equal(np.argmax(true, 1), np.argmax(predictions, 1))
+                correct_prediction = np.equal(true, np.argmax(predictions, 1))
                 self.valid_results = np.concatenate((self.valid_results, correct_prediction))
         except tf.errors.OutOfRangeError:
             self.print_log('Done training for %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
@@ -223,9 +246,9 @@ class ConvVae(Model):
         coord = tf.train.Coordinator()
         try:
             while not coord.should_stop():
-                logits, true = self.sess.run([self.logits_valid, self.valid_y], feed_dict={self.epsilon: self.norm})
+                logits, true = self.sess.run([self.logits_valid, self.valid_y])
                 predictions = np.reshape(logits, [-1, self.flags['num_classes']])
-                correct_prediction = np.equal(np.argmax(true, 1), np.argmax(predictions, 1))
+                correct_prediction = np.equal(true, np.argmax(predictions, 1))
                 self.valid_results = np.concatenate((self.valid_results, correct_prediction))
         except tf.errors.OutOfRangeError:
             self.print_log('Done training for %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
@@ -261,8 +284,75 @@ class ConvVae(Model):
         file.write('Test set accuracy:')
         file.write(str(accuracy))
         file.close()
+    
+    def batch_inputs(dataset, batch_size, train, num_preprocess_threads=None, num_readers=1):
+        with tf.name_scope('batch_processing'):
+            data_files = dataset.data_files()
+            if data_files is None:
+                raise ValueError('No data files found for this dataset')
 
-    def read_and_decode_single_example(self, filename, num_epochs):
+            # Create filename_queue
+            if train:
+                filename_queue = tf.train.string_input_producer(data_files,
+                                  shuffle=True,
+                                  capacity=16)
+            else:
+                filename_queue = tf.train.string_input_producer(data_files,
+                                  shuffle=False,
+                                  capacity=1)
+            if num_preprocess_threads is None:
+                num_preprocess_threads = FLAGS.num_preprocess_threads
+
+            if num_preprocess_threads % 4:
+                raise ValueError('Please make num_preprocess_threads a multiple '
+            'of 4 (%d % 4 != 0).', num_preprocess_threads)
+
+            if num_readers is None:
+                num_readers = FLAGS.num_readers
+
+            if num_readers < 1:
+                raise ValueError('Please make num_readers at least 1')
+
+            # Approximate number of examples per shard.
+            examples_per_shard = 1024
+            # Size the random shuffle queue to balance between good global
+            # mixing (more examples) and memory use (fewer examples).
+            # 1 image uses 299*299*3*4 bytes = 1MB
+            # The default input_queue_memory_factor is 16 implying a shuffling queue
+            # size: examples_per_shard * 16 * 1MB = 17.6GB
+            min_queue_examples = examples_per_shard * FLAGS.input_queue_memory_factor
+            if train:
+                examples_queue = tf.RandomShuffleQueue(
+                capacity=min_queue_examples + 3 * batch_size,
+                min_after_dequeue=min_queue_examples,
+                dtypes=[tf.string])
+            else:
+              examples_queue = tf.FIFOQueue(capacity=examples_per_shard + 3 * batch_size, dtypes=[tf.string])
+
+        # Create multiple readers to populate the queue of examples.
+        if num_readers > 1:
+            enqueue_ops = []
+            for _ in range(num_readers):
+                reader = dataset.reader()
+                _, value = reader.read(filename_queue)
+                enqueue_ops.append(examples_queue.enqueue([value]))
+
+                tf.train.queue_runner.add_queue_runner(
+                tf.train.queue_runner.QueueRunner(examples_queue, enqueue_ops))
+                example_serialized = examples_queue.dequeue()
+        else:
+            reader = dataset.reader()
+            _, example_serialized = reader.read(filename_queue)
+
+        images_and_labels = list()
+        for thread_id in range(num_preprocess_threads):
+            # Parse a serialized Example proto to extract the image and metadata.
+            image, label = self.read_and_decode(example_serialized)
+            images_and_labels.append([image, label])
+
+        images, label_index_batch = tf.train.batch_join(images_and_labels, batch_size=batch_size, capacity=2 * num_preprocess_threads * batch_size)
+
+    def read_and_decode(self, filename, num_epochs):
         filename_queue = tf.train.string_input_producer([filename],num_epochs=num_epochs)
         reader = tf.TFRecordReader()
         _, serialized_example = reader.read(filename_queue)
@@ -280,14 +370,28 @@ class ConvVae(Model):
         image = tf.decode_raw(features['image'], tf.float32)
         image.set_shape([784])
         image = tf.reshape(image, [28, 28, 1])
-        return tf.cast(label, tf.int32), tf.cast(image, tf.float32) * (1/255.) - 0.5
+        return tf.cast(label, tf.int32), tf.cast(image, tf.float32)
+
+    @staticmethod
+    def img_norm(x, epsilon=1e-3):
+        """
+        :param x: input feature map stack
+        :param scope: name of tensorflow scope
+        :param epsilon: float
+        :return: output feature map stack
+        """
+        # Calculate batch mean and variance
+        batch_mean1, batch_var1 = tf.nn.moments(x, [0,1,2], keep_dims=True)
+
+        # Apply the initial batch normalizing transform
+        z1_hat = (x - batch_mean1) / tf.sqrt(batch_var1 + epsilon)
+        return z1_hat
 
 def main():
     flags['seed'] = np.random.randint(1, 1000, 1)[0]
     counter = 1
     model_vae = ConvVae(flags, run_num=counter, labeled=1000)
-    model_vae.train()
-    model_vae.valid()
+    model_vae.training()
 """
     for l in [100, 300, 1000, 5000]:
         model_vae = ConvVae(flags, run_num=counter, labeled=l)
