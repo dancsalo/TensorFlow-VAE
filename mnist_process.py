@@ -3,7 +3,7 @@ from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
-mnist = input_data.read_data_sets("MNIST_data", one_hot=False)
+mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
 train_data = mnist.train.images
 test_data = mnist.test.images
 valid_data = mnist.validation.images
@@ -19,6 +19,9 @@ num_classes = 10
 
 def _int64_features(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+def _int64_list_features(list_vals):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=list_vals))
 
 def _bytes_features(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
@@ -41,16 +44,18 @@ for num_labels in [1000]:
             rows = 28
             cols = 28
             depth = 1
-            label = int(labels[example_idx])
+            label_np = labels[example_idx].astype("int32")
+            label = label_np.tolist()
             if name == "train":
-                true_label = int(labels[example_idx])
-                label = 10
-                if num_samples[true_label] < 10:
+                true_label = label
+                label = [0,0,0,0,0,0,0,0,0,0]
+                if num_samples[label_np == 1] < 10:
                     label = true_label
-                    num_samples[label] += 1
+                    num_samples[label_np == 1] += 1
                     print(num_samples)
                     print(example_idx)
             # construct the Example proto boject
+            assert type(label) is list
             example = tf.train.Example(
                 # Example contains a Features proto object
                 features=tf.train.Features(
@@ -58,7 +63,7 @@ for num_labels in [1000]:
                   feature={
                     # A Feature contains one of either a int64_list,
                     # float_list, or bytes_list
-                    'label': _int64_features(label),
+                    'label': _int64_list_features(label),
                     'height': _int64_features(rows),
                     'width': _int64_features(cols),
                     'depth': _int64_features(depth),
