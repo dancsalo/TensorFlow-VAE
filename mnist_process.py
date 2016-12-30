@@ -30,7 +30,7 @@ def _bytes_features(value):
 # formats. Without this, one cannot make use of tensorflow's great
 # out of core shuffling.
 
-for num_labels in [1000]:
+for num_labels in [500, 1000, 5000, 10000]:
     for d in range(3):
         data = all_data[d]
         labels = all_labels[d]
@@ -49,7 +49,7 @@ for num_labels in [1000]:
             if name == "train":
                 true_label = label
                 label = [0,0,0,0,0,0,0,0,0,0]
-                if num_samples[label_np == 1] < 10:
+                if num_samples[label_np == 1] < num_labels:
                     label = true_label
                     num_samples[label_np == 1] += 1
                     print(num_samples)

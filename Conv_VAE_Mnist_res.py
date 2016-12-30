@@ -23,7 +23,7 @@ import scipy.misc
 flags = {
     'data_directory': 'MNIST_data/',
     'save_directory': 'summaries/',
-    'model_directory': 'conv_vae/',
+    'model_directory': 'conv_vae_res/',
     'restore': False,
     'restore_file': 'start.ckpt',
     'datasets': 'MNIST',
@@ -34,7 +34,7 @@ flags = {
     'display_step': 200,
     'weight_decay': 1e-6,
     'lr_iters': [(1e-3, 10000)],
-    'run_num': 3,
+    'run_num': 1,
 }
 
 
@@ -63,11 +63,8 @@ class ConvVae(Model):
         encoder = Layers(x)
         encoder.conv2d(5, 64)
         encoder.maxpool()
-        encoder.conv2d(3, 64)
-        encoder.conv2d(3, 64)
-        encoder.conv2d(3, 128, stride=2)
-        encoder.conv2d(3, 128)
-        encoder.conv2d(1, 64)
+        encoder.res_layer(3, 64)
+        encoder.res_layer(3, 128, stride=2)
         encoder.conv2d(1, self.flags['hidden_size'] * 2, activation_fn=None)
         encoder.avgpool(globe=True)
         return encoder.get_output()
