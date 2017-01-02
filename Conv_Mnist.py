@@ -95,11 +95,9 @@ class ConvVae(Model):
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
 
     def _run_train_iter(self):
-        self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, _ = self.sess.run([self.merged, self.optimizer], feed_dict={self.epsilon: self.norm})
 
     def _run_train_summary_iter(self):
-        self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, self.loss, self.x_recon, self.x_true, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.optimizer], feed_dict={self.epsilon: self.norm})
 
     def run(self, mode):
@@ -126,11 +124,12 @@ class ConvVae(Model):
                 start_time = time.time()
                 self.duration = time.time() - start_time
                 if mode == "train":
-                    self._run_train_iter()
                     self._record_training_step()
                     if self.step % self.flags['display_step'] == 0:
                         self._run_train_summary_iter()
                         self._record_train_metrics()
+                    else:
+                        self._run_train_iter()
                 else:
                     logits, true = self.sess.run([self.logits_eval, self.eval_y], feed_dict={self.epsilon: self.norm})
                     correct_prediction = np.equal(np.argmax(true, 1), np.argmax(logits, 1))
