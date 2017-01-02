@@ -33,10 +33,10 @@ flags = {
     'hidden_size': 10,
     'num_classes': 10,
     'batch_size': 100,
-    'xentropy': 10,
+    'xentropy': 1,
     'display_step': 200,
     'starter_lr': 1e-3,
-    'num_epochs': 500,
+    'num_epochs': 150,
     'weight_decay': 1e-6,
 }
 
