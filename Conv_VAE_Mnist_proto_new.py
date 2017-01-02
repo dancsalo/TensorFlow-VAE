@@ -36,9 +36,8 @@ flags = {
     'xentropy': 10,
     'display_step': 200,
     'starter_lr': 1e-3,
-    'num_epochs': 1,
+    'num_epochs': 500,
     'weight_decay': 1e-6,
-    'run_num': 2,
 }
 
 
@@ -46,9 +45,7 @@ class ConvVae(Model):
     def __init__(self, flags_input, run_num, labeled):
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
-        self.print_log('Number of Labeled: %d' % labeled)
-        self.valid_results = list()
-        self.test_results = list()
+        self.print_log('Number of Labeled: %d' % int(labeled))
         names = ['train','valid','test']
         for n in names:
             self.flags[n + '_data_file'] = 'mnist_' +str(labeled) +'_' + n + '.tfrecords'
@@ -131,15 +128,18 @@ class ConvVae(Model):
 
     def run(self, mode):
         self.step = 0
-        if mode == "valid":
+        if mode != "train":
+            self.sess.close()
+            tf.reset_default_graph()
+            self.results = list()
             self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
             self.flags['restore'] = True
             self.flags['restore_file'] = 'part_1.ckpt.meta'
-            self.valid_x, self.valid_y = self.batch_inputs("valid")
+            self.eval_x, self.eval_y = self.batch_inputs(mode)
             norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
             with tf.variable_scope("model") as scope:
-                self.latent = self._encoder(x=self.valid_x)
-                _, _, _, self.logits_valid = self._decoder(z=self.latent)
+                self.latent = self._encoder(x=self.eval_x)
+                _, _, _, self.logits_eval = self._decoder(z=self.latent)
             _, _, self.sess, _ = self._set_tf_functions()
             self._initialize_model()
         coord = tf.train.Coordinator()
@@ -156,33 +156,28 @@ class ConvVae(Model):
                     if self.step % self.flags['display_step'] == 0:
                         self._run_train_summary_iter()
                         self._record_train_metrics()
-                elif mode == "valid":
-                    logits, true = self.sess.run([self.logits_valid, self.valid_y], feed_dict={self.epsilon: norm})
-                    predictions = np.reshape(logits, [-1, self.flags['num_classes']])
-                    correct_prediction = np.equal(np.argmax(true, 1), np.argmax(predictions, 1))
-                    self.valid_results = np.concatenate((self.valid_results, correct_prediction))
+                else:
+                    logits, true = self.sess.run([self.logits_eval, self.eval_y], feed_dict={self.epsilon: norm})
+                    # predictions = np.reshape(logits, [-1, self.flags['num_classes']])
+                    correct_prediction = np.equal(np.argmax(true, 1), np.argmax(logits, 1))
+                    self.results = np.concatenate((self.results, correct_prediction))
                     self.step += 1
-                else:  # test mode
-                    logits, true = self.sess.run([self.logits_test, self.valid_y], feed_dict={self.epsilon: norm})
-                    predictions = np.reshape(logits, [-1, self.flags['num_classes']])
-                    correct_prediction = np.equal(np.argmax(true, 1), np.argmax(predictions, 1))
-                    self.valid_results = np.concatenate((self.valid_results, correct_prediction))
                 print(self.step)
         except Exception as e:
             coord.request_stop(e)
         finally:
             if mode == "train":
                 self._save_model(section=1)
-            if mode == "valid":
-                self._record_valid_metrics()
+            else:  # eval mode
+                self._record_eval_metrics(mode)
             self.print_log('Finished ' + mode + ': %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
         coord.request_stop()  
         coord.join(threads, stop_grace_period_secs=10)
-
+    
     def close(self):
         self.sess.close()
         tf.reset_default_graph()
-
+    
     def _record_train_metrics(self):
         for j in range(1):
             scipy.misc.imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '_' + str(j) +'.png',
@@ -197,19 +192,11 @@ class ConvVae(Model):
         print(self.x_recon[0].max())
         self.print_log('Step %d: loss = %.6f (%.3f sec)' % (self.step,self.loss,self.duration))
 
-    def _record_valid_metrics(self):
-        accuracy = np.mean(self.valid_results)
-        self.print_log("Accuracy on Validation Set: %f" % accuracy)
-        file = open(self.flags['restore_directory'] + 'ValidAccuracy.txt', 'w')
-        file.write('Test set accuracy:')
-        file.write(str(accuracy))
-        file.close()
-
-    def _record_test_metrics(self):
-        accuracy = np.mean(self.test_results)
-        self.print_log("Accuracy on Test Set: %f" % accuracy)
-        file = open(self.flags['restore_directory'] + 'TestAccuracy.txt', 'w')
-        file.write('Test set accuracy:')
+    def _record_eval_metrics(self, mode):
+        accuracy = np.mean(self.results)
+        self.print_log("Accuracy on "+ mode + " Set: %f" % accuracy)
+        file = open(self.flags['restore_directory'] + mode + '_Accuracy.txt', 'w')
+        file.write(mode + 'set accuracy:')
         file.write(str(accuracy))
         file.close()
     
@@ -218,39 +205,35 @@ class ConvVae(Model):
             # Approximate number of examples per shard.
             examples_per_shard = 1024
             min_queue_examples = examples_per_shard * 16
-
             if dataset == "train":
-                filename_queue = tf.train.string_input_producer([self.flags['train_data_file']],
-                    num_epochs=self.flags['num_epochs'],shuffle=True,capacity=16)
-                examples_queue = tf.RandomShuffleQueue(capacity=min_queue_examples + 3 *  self.flags['batch_size'],
-                    min_after_dequeue=min_queue_examples,
-                    dtypes=[tf.string])
-                num_preprocess_threads=4
-                num_readers=4
-                enqueue_ops = list()
-                for _ in range(num_readers):
-                    reader = tf.TFRecordReader()
-                    _, value = reader.read(filename_queue)
-                    enqueue_ops.append(examples_queue.enqueue([value]))
-                tf.train.queue_runner.add_queue_runner(tf.train.queue_runner.QueueRunner(examples_queue, enqueue_ops))
-                example_serialized = examples_queue.dequeue()
-                images_and_labels = list()
-                for _ in range(num_preprocess_threads):
-                    # Parse a serialized Example proto to extract the image and metadata.
-                    image, label = self.read_and_decode(example_serialized)
-                    images_and_labels.append([image, label])
-                image_batch, label_batch = tf.train.batch_join(images_and_labels, batch_size=self.flags['batch_size'], capacity=2 * num_preprocess_threads * self.flags['batch_size'])
-
-            else:  # evaluate
-                filename_queue = tf.train.string_input_producer([self.flags[dataset + '_data_file']], num_epochs=1,
-                                  shuffle=False,capacity=1)
-                examples_queue = tf.FIFOQueue(capacity=examples_per_shard + 3 * self.flags['batch_size'], dtypes=[tf.string])
-                num_preprocess_threads=1
-                num_readers=1
+                filename = self.flags['train_data_file']
+                epochs = self.flags['num_epochs']
+            elif dataset == "valid":
+                filename = self.flags['valid_data_file']
+                epochs = 1
+            else:  # test data file
+                filename = self.flags['test_data_file']
+                epochs = 1
+            filename_queue = tf.train.string_input_producer([filename],
+                num_epochs=epochs,shuffle=True,capacity=16)
+            examples_queue = tf.RandomShuffleQueue(capacity=min_queue_examples + 3 *  self.flags['batch_size'],
+                min_after_dequeue=min_queue_examples,
+                dtypes=[tf.string])
+            num_preprocess_threads=4
+            num_readers=4
+            enqueue_ops = list()
+            for _ in range(num_readers):
                 reader = tf.TFRecordReader()
-                _, example_serialized = reader.read(filename_queue)
+                _, value = reader.read(filename_queue)
+                enqueue_ops.append(examples_queue.enqueue([value]))
+            tf.train.queue_runner.add_queue_runner(tf.train.queue_runner.QueueRunner(examples_queue, enqueue_ops))
+            example_serialized = examples_queue.dequeue()
+            images_and_labels = list()
+            for _ in range(num_preprocess_threads):
+                # Parse a serialized Example proto to extract the image and metadata.
                 image, label = self.read_and_decode(example_serialized)
-                image_batch, label_batch = tf.train.batch(image_and_labels, batch_size=self.flags['batch_size'], capacity=2 *  num_preprocess_threads * self.flags['batch_size'])
+                images_and_labels.append([image, label])
+            image_batch, label_batch = tf.train.batch_join(images_and_labels, batch_size=self.flags['batch_size'], capacity=2 * num_preprocess_threads * self.flags['batch_size'])
             return image_batch, label_batch
 
     def read_and_decode(self, example_serialized):
@@ -273,14 +256,12 @@ class ConvVae(Model):
 
 def main():
     flags['seed'] = np.random.randint(1, 1000, 1)[0]
-    counter = 1
-    for l in [500]:
-        model_vae = ConvVae(flags, run_num=counter, labeled=l)
-        model_vae.run("train")
-        model_vae.close()
-        model_vae.run("valid")
-        model_vae.close()
-        counter += 1
+    run_num = sys.argv[1]
+    labels = sys.argv[2]
+    model = ConvVae(flags, run_num=run_num, labeled=labels)
+    model.run("train")
+    model.run("valid")
+    model.run("test")
 
 if __name__ == "__main__":
     main()
