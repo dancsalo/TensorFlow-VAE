@@ -23,62 +23,52 @@ import time
 flags = {
     'data_directory': 'MNIST_data/',
     'save_directory': 'summaries/',
-    'model_directory': 'conv_vae_proto/',
-    'train_data_file': 'mnist_1000_train.tfrecords',
-    'valid_data_file': 'mnist_1000_valid.tfrecords',
-    'test_data_file': 'mnist_1000_test.tfrecords',
+    'model_directory': 'conv/',
+    'train_data_file': 'mnist_1_train.tfrecords',
+    'valid_data_file': 'mnist_1_valid.tfrecords',
+    'test_data_file': 'mnist_1_test.tfrecords',
     'restore': False,
     'restore_file': 'part_1.ckpt.meta',
     'image_dim': 28,
-    'hidden_size': 10,
     'num_classes': 10,
     'batch_size': 100,
-    'xentropy': 1,
-    'display_step': 200,
+    'display_step': 550,
     'starter_lr': 1e-3,
-    'num_epochs': 150,
-    'weight_decay': 1e-6,
+    'num_epochs': 100,
 }
 
 
 class ConvVae(Model):
     def __init__(self, flags_input, run_num, labeled):
+        for n in ['train', 'valid', 'test']:
+            if n == 'train':
+                flags_input[n + '_data_file'] = 'data/mnist_' +str(labeled) + '_' + n + '_labeled.tfrecords'
+            else:
+                flags_input[n + '_data_file'] = 'data/mnist_' +str(labeled) + '_' + n + '.tfrecords'
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
         self.print_log('Number of Labeled: %d' % int(labeled))
         names = ['train','valid','test']
-        for n in names:
-            self.flags[n + '_data_file'] = 'mnist_' +str(labeled) +'_' + n + '.tfrecords'
+
 
     def _set_placeholders(self):
-        self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         self.train_x, self.train_y = self.batch_inputs("train")
         self.num_train_images = 55000
         self.num_valid_images = 5000
         self.num_test_images = 10000
 
     def _set_summaries(self):
-        tf.summary.scalar("Total_Loss", self.cost)
-        tf.summary.scalar("Reconstruction_Loss", self.recon)
-        tf.summary.scalar("VAE_Loss", self.vae)
-        tf.summary.scalar("Weight_Decay_Loss", self.weight)
-        tf.summary.scalar("XEntropy_Loss", self.xentropy)
-        tf.summary.histogram("Mean", self.mean)
-        tf.summary.histogram("Stddev", self.stddev)
-        tf.summary.image("train_x", self.train_x)
-        tf.summary.image("x_hat", self.x_hat)
-
+        tf.summary.scalar("XEntropy_Loss", self.cost)
+        
     def _encoder(self, x):
         encoder = Layers(x)
-        encoder.conv2d(5, 64)
+        encoder.conv2d(5, 32)
         encoder.maxpool()
-        encoder.conv2d(3, 64)
-        encoder.conv2d(3, 64)
-        encoder.conv2d(3, 128, stride=2)
-        encoder.conv2d(3, 128)
-        encoder.conv2d(1, 64)
-        encoder.conv2d(1, self.flags['hidden_size'], activation_fn=None)
-        encoder.avgpool(globe=True)
+        encoder.conv2d(5, 64, stride=2)
+        encoder.conv2d(7, 128, padding='VALID')
+        encoder.conv2d(1, 64, activation_fn=None)
+        encoder.flatten()
+        encoder.fc(self.flags['num_classes'], activation_fn=None)
         logits = tf.nn.softmax(encoder.get_output())
         return encoder.get_output(), logits
 
@@ -89,16 +79,14 @@ class ConvVae(Model):
     def _optimizer(self):
         self.learning_rate = self.flags['starter_lr']
         const = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
-        self.xentropy = const * self.flags['xentropy'] * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.y_hat, self.train_y, name='xentropy'))
-        self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
-        self.cost = tf.reduce_sum(self.weight + self.xentropy)
+        self.cost = const * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.y_hat, self.train_y, name='xentropy'))
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
 
     def _run_train_iter(self):
-        self.summary, _ = self.sess.run([self.merged, self.optimizer], feed_dict={self.epsilon: self.norm})
+        self.summary, _ = self.sess.run([self.merged, self.optimizer])
 
     def _run_train_summary_iter(self):
-        self.summary, self.loss, self.x_recon, self.x_true, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.optimizer], feed_dict={self.epsilon: self.norm})
+        self.summary, self.loss, _ = self.sess.run([self.merged, self.cost, self.optimizer])
 
     def run(self, mode):
         self.step = 0
@@ -106,11 +94,9 @@ class ConvVae(Model):
             self.sess.close()
             tf.reset_default_graph()
             self.results = list()
-            self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
             self.flags['restore'] = True
             self.flags['restore_file'] = 'part_1.ckpt.meta'
             self.eval_x, self.eval_y = self.batch_inputs(mode)
-            self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
             with tf.variable_scope("model"):
                 _, self.logits_eval = self._encoder(x=self.eval_x)
             _, _, self.sess, _ = self._set_tf_functions()
@@ -124,14 +110,15 @@ class ConvVae(Model):
                 start_time = time.time()
                 self.duration = time.time() - start_time
                 if mode == "train":
-                    self._record_training_step()
                     if self.step % self.flags['display_step'] == 0:
                         self._run_train_summary_iter()
                         self._record_train_metrics()
                     else:
                         self._run_train_iter()
+                    self._record_training_step()
                 else:
-                    logits, true = self.sess.run([self.logits_eval, self.eval_y], feed_dict={self.epsilon: self.norm})
+                    logits, true = self.sess.run([self.logits_eval, self.eval_y])
+                    logits = np.squeeze(logits)
                     correct_prediction = np.equal(np.argmax(true, 1), np.argmax(logits, 1))
                     self.results = np.concatenate((self.results, correct_prediction))
                     self.step += 1
