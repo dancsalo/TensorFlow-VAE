@@ -23,9 +23,9 @@ import time
 flags = {
     'save_directory': 'summaries/',
     'model_directory': 'conv_vae_semi/',
-    'train_data_file': 'mnist_1000_train.tfrecords',
-    'valid_data_file': 'mnist_1000_valid.tfrecords',
-    'test_data_file': 'mnist_1000_test.tfrecords',
+    'train_data_file': 'data/mnist_1000_train.tfrecords',
+    'valid_data_file': 'data/mnist_valid.tfrecords',
+    'test_data_file': 'data/mnist_test.tfrecords',
     'restore': False,
     'restore_file': 'part_1.ckpt.meta',
     'image_dim': 28,
@@ -33,7 +33,7 @@ flags = {
     'num_classes': 10,
     'batch_size': 100,
     'xentropy': 10,
-    'display_step': 200,
+    'display_step': 550,
     'starter_lr': 1e-3,
     'num_epochs': 75,
     'weight_decay': 1e-6,
@@ -42,11 +42,7 @@ flags = {
 
 class ConvVae(Model):
     def __init__(self, flags_input, run_num, labeled):
-        for n in ['train', 'valid', 'test']:
-            if n == 'train':
-                flags_input[n + '_data_file'] = 'data/mnist_' +str(labeled) + '_' + n + '_labeled.tfrecords'
-            else:
-                flags_input[n + '_data_file'] = 'data/mnist_' +str(labeled) + '_' + n + '.tfrecords'
+        flags_input['train_data_file'] = 'data/mnist_' +str(labeled) + '_train.tfrecords'
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
         self.print_log('Number of Labeled: %d' % int(labeled))
@@ -109,10 +105,10 @@ class ConvVae(Model):
     def _optimizer(self):
         epsilon = 1e-8
         self.learning_rate = self.flags['starter_lr']
-        const = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
-        self.xentropy = const * self.flags['xentropy'] * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.logits_train, self.train_y, name='xentropy'))
-        self.recon = const * tf.reduce_sum(tf.squared_difference(self.train_x, self.x_hat))
-        self.vae = const * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
+        const_vae = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
+        self.xentropy = self.flags['xentropy'] * 1/(self.flags['batch_size']) * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.logits_train, self.train_y, name='xentropy'))
+        self.recon = const_vae * tf.reduce_sum(tf.squared_difference(self.train_x, self.x_hat))
+        self.vae = const_vae * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
         #self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.xentropy)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
@@ -193,9 +189,9 @@ class ConvVae(Model):
 
     def _record_eval_metrics(self, mode):
         accuracy = np.mean(self.results)
-        self.print_log("Accuracy on "+ mode + " Set: %f" % accuracy)
-        file = open(self.flags['restore_directory'] + 'ValidAccuracy.txt', 'w')
-        file.write('Test set accuracy:')
+        self.print_log("Accuracy on " + mode + " Set: %f" % accuracy)
+        file = open(self.flags['restore_directory'] + mode + '_Accuracy.txt', 'w')
+        file.write(mode + 'set accuracy:')
         file.write(str(accuracy))
         file.close()
     
@@ -264,3 +260,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

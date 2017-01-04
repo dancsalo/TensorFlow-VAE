@@ -25,14 +25,14 @@ flags = {
     'save_directory': 'summaries/',
     'model_directory': 'conv/',
     'train_data_file': 'mnist_1_train.tfrecords',
-    'valid_data_file': 'mnist_1_valid.tfrecords',
-    'test_data_file': 'mnist_1_test.tfrecords',
+    'valid_data_file': 'data/mnist_valid.tfrecords',
+    'test_data_file': 'data/mnist_test.tfrecords',
     'restore': False,
     'restore_file': 'part_1.ckpt.meta',
     'image_dim': 28,
     'num_classes': 10,
     'batch_size': 100,
-    'display_step': 550,
+    'display_step': 250,
     'starter_lr': 1e-3,
     'num_epochs': 100,
 }
@@ -40,11 +40,7 @@ flags = {
 
 class ConvVae(Model):
     def __init__(self, flags_input, run_num, labeled):
-        for n in ['train', 'valid', 'test']:
-            if n == 'train':
-                flags_input[n + '_data_file'] = 'data/mnist_' +str(labeled) + '_' + n + '_labeled.tfrecords'
-            else:
-                flags_input[n + '_data_file'] = 'data/mnist_' +str(labeled) + '_' + n + '.tfrecords'
+        flags_input['train_data_file'] = 'data/mnist_' +str(labeled) + '_train_labeled.tfrecords'
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
         self.print_log('Number of Labeled: %d' % int(labeled))

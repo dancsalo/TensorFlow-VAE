@@ -4,9 +4,10 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 import os
+import random
 
 flags = {
-    'labels_list': [100, 500, 1000, 3000, 5000],
+    'labels_list': [100, 300, 500, 1000, 3000, 5000],
     'data_directory': 'data/',
     'nums': [55000, 10000, 5000],
     'all_names': ["train", "test", "valid"],
@@ -27,6 +28,7 @@ def main():
     all_data, all_labels = load_data()
     make_directory(flags['data_directory'])
     semi_all_train(flags['labels_list'], all_data, all_labels)
+    # semi_split_train(flags['labels_list'], all_data, all_labels)
 
 def semi_split_train(labels_list, all_data, all_labels):
     for num_labels in labels_list:
@@ -57,6 +59,7 @@ def semi_split_train(labels_list, all_data, all_labels):
                     write(pixels, label, writer)
 
 def semi_all_train(labels_list, all_data, all_labels):
+    random.seed(10)
     for num_labels in labels_list:
         for d in range(3):
             data = all_data[d]
@@ -66,7 +69,8 @@ def semi_all_train(labels_list, all_data, all_labels):
             writer = tf.python_io.TFRecordWriter(flags['data_directory'] + "mnist_" + str(num_labels) + "_" + name + ".tfrecords")
             # iterate over each example
             # wrap with tqdm for a progress bar
-            for example_idx in tqdm(range(flags['nums'][d])):
+            examples = list()
+            for example_idx in range(flags['nums'][d]):
                 pixels = data[example_idx].tostring()
                 label_np = labels[example_idx].astype("int32")
                 label = label_np.tolist()
@@ -75,7 +79,10 @@ def semi_all_train(labels_list, all_data, all_labels):
                         num_samples[label_np == 1] += 1
                     else:
                         label = [0,0,0,0,0,0,0,0,0,0]
-                write(pixels, label, writer)
+                examples.append((pixels, label))
+            random.shuffle(examples)
+            for idx in tqdm(range(flags['nums'][d])):
+                write(examples[idx][0], examples[idx][1], writer)
 
 
 def write(pixels, label, writer):
