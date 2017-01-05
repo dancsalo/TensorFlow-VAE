@@ -102,18 +102,21 @@ class ConvVae(Model):
         decoder.deconv2d(3, 64, stride=2)
         decoder.deconv2d(5, 32, stride=2)
         decoder.deconv2d(7, 1, activation_fn=tf.nn.tanh, s_value=None)
-        return decoder.get_output(), mean, stddev, logits, class_predictions
+        return decoder.get_output(), mean, stddev, class_predictions, logits
 
     def _network(self):
         with tf.variable_scope("model") as scope:
             self.latent = self._encoder(x=self.train_x)
-            self.x_hat, self.mean, self.stddev, self.logits_train, self.preds = self._decoder(z=self.latent)
+            self.x_hat, self.mean, self.stddev, preds, logits_train = self._decoder(z=self.latent)
+            self.preds = preds[0:int(self.flags['batch_size']/2), ]
+            self.logits_train = logits_train[0:int(self.flags['batch_size']/2), ]
+            self.train_y_labeled = self.train_y[0:int(self.flags['batch_size']/2)]
 
     def _optimizer(self):
         epsilon = 1e-8
         self.learning_rate = self.flags['starter_lr']
         const_vae = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
-        self.xentropy = 2/(self.flags['batch_size']) * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.preds, self.train_y, name='xentropy'))
+        self.xentropy = 2/(self.flags['batch_size']) * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.preds, self.train_y_labeled, name='xentropy'))
         self.recon = const_vae * tf.reduce_sum(tf.squared_difference(self.train_x, self.x_hat))
         self.vae = const_vae * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.xentropy)
@@ -127,7 +130,7 @@ class ConvVae(Model):
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y, self.optimizer], feed_dict={self.epsilon: self.norm})
         correct_prediction = np.equal(np.argmax(true_y, 1), np.argmax(logits, 1))
-        self.print_log('Minibatch Accuracy: %.6f' % correct_prediction)
+        self.print_log('Minibatch Accuracy: %.6f' % np.mean(correct_prediction))
 
     def run(self, mode):
         self.step = 0
@@ -141,7 +144,7 @@ class ConvVae(Model):
             self.eval_x, self.eval_y = self.batch_inputs(mode)
             with tf.variable_scope("model") as scope:
                 self.latent = self._encoder(x=self.eval_x)
-                _, _, _, self.logits_eval = self._decoder(z=self.latent)
+                _, _, _, _, self.logits_eval = self._decoder(z=self.latent)
             _, _, self.sess, _ = self._set_tf_functions()
             self._initialize_model()
             coord = tf.train.Coordinator()
