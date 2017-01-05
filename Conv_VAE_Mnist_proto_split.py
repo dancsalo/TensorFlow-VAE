@@ -127,7 +127,7 @@ class ConvVae(Model):
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y, self.optimizer], feed_dict={self.epsilon: self.norm})
         correct_prediction = np.equal(np.argmax(true_y, 1), np.argmax(logits, 1))
-        self.print_log('Minibatch Accuracy: %.6f' % correct_prediction)
+        self.print_log('Minibatch Accuracy: %.6f' % np.mean(correct_prediction))
 
     def run(self, mode):
         self.step = 0
@@ -141,7 +141,7 @@ class ConvVae(Model):
             self.eval_x, self.eval_y = self.batch_inputs(mode)
             with tf.variable_scope("model") as scope:
                 self.latent = self._encoder(x=self.eval_x)
-                _, _, _, self.logits_eval = self._decoder(z=self.latent)
+                _, _, _, self.logits_eval, _ = self._decoder(z=self.latent)
             _, _, self.sess, _ = self._set_tf_functions()
             self._initialize_model()
             coord = tf.train.Coordinator()
@@ -285,7 +285,6 @@ def main():
     run_num = sys.argv[1]
     labels = sys.argv[2]
     model = ConvVae(flags, run_num=run_num, labeled=labels)
-    model.run("train")
     model.run("valid")
     model.run("test")
 
