@@ -43,7 +43,7 @@ flags = {
 class ConvVae(Model):
     def __init__(self, flags_input, run_num, labeled):
         flags_input['train_unlabeled_data_file'] = 'data/mnist_' +str(labeled) + '_train_unlabeled.tfrecords'
-        flags_input['train_labeled_data_file'] = 'data/mnist_' +str(labeled) + '_train_labeled.tfrecords'
+        flags_input['train_labeled_data_file'] = 'data/mnist_' + str(labeled) + '_train_labeled.tfrecords'
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
         self.labeled = int(labeled)
@@ -85,6 +85,7 @@ class ConvVae(Model):
             mean = None
             stddev = None
             logits = None
+            class_predictions = None
             input_sample = self.epsilon
         else:
             z = tf.reshape(z, [-1, self.flags['hidden_size'] * 2])
@@ -92,7 +93,8 @@ class ConvVae(Model):
             stddev = tf.sqrt(tf.exp(stddev))
             mlp = Layers(mean)
             mlp.fc(self.flags['num_classes'])
-            logits = tf.nn.softmax(mlp.get_output())
+            class_predictions = mlp.get_output()
+            logits = tf.nn.softmax(class_predictions)
             input_sample = mean + self.epsilon * stddev
         decoder = Layers(tf.expand_dims(tf.expand_dims(input_sample, 1), 1))
         decoder.deconv2d(3, 128, padding='VALID')
@@ -100,21 +102,20 @@ class ConvVae(Model):
         decoder.deconv2d(3, 64, stride=2)
         decoder.deconv2d(5, 32, stride=2)
         decoder.deconv2d(7, 1, activation_fn=tf.nn.tanh, s_value=None)
-        return decoder.get_output(), mean, stddev, logits
+        return decoder.get_output(), mean, stddev, logits, class_predictions
 
     def _network(self):
         with tf.variable_scope("model") as scope:
             self.latent = self._encoder(x=self.train_x)
-            self.x_hat, self.mean, self.stddev, self.logits_train = self._decoder(z=self.latent)
+            self.x_hat, self.mean, self.stddev, self.logits_train, self.preds = self._decoder(z=self.latent)
 
     def _optimizer(self):
         epsilon = 1e-8
         self.learning_rate = self.flags['starter_lr']
         const_vae = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
-        self.xentropy = 2/(self.flags['batch_size']) * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.logits_train, self.train_y, name='xentropy'))
+        self.xentropy = 2/(self.flags['batch_size']) * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.preds, self.train_y, name='xentropy'))
         self.recon = const_vae * tf.reduce_sum(tf.squared_difference(self.train_x, self.x_hat))
         self.vae = const_vae * -0.5 * tf.reduce_sum(1.0 - tf.square(self.mean) - tf.square(self.stddev) + 2.0 * tf.log(self.stddev + epsilon))
-        #self.weight = self.flags['weight_decay'] * tf.add_n(tf.get_collection('weight_losses'))
         self.cost = tf.reduce_sum(self.vae + self.recon + self.xentropy)
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
 
@@ -125,7 +126,7 @@ class ConvVae(Model):
     def _run_train_summary_iter(self):
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y, self.optimizer], feed_dict={self.epsilon: self.norm})
-        correct_prediction = np.equal(np.argmax(true, 1), np.argmax(logits, 1))
+        correct_prediction = np.equal(np.argmax(true_y, 1), np.argmax(logits, 1))
         self.print_log('Minibatch Accuracy: %.6f' % correct_prediction)
 
     def run(self, mode):
@@ -153,12 +154,12 @@ class ConvVae(Model):
             threads = list()
             for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
                 threads.extend(qr.create_threads(self.sess, coord=coord, daemon=True,start=True))
-            self.train(coord)
+            self.train()
         self.print_log('Finished ' + mode + ': %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
         coord.request_stop()  
         coord.join(threads, stop_grace_period_secs=10)
     
-    def train(self, coord):
+    def train(self):
         iterations = math.ceil(self.num_train_images/self.flags['batch_size']) * self.flags['num_epochs']
         self.print_log('Training for %d iterations' % iterations)
         for i in range(iterations):

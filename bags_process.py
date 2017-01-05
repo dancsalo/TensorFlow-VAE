@@ -90,7 +90,7 @@ def write_to_tfrecords(label, bbox, bagimages, dims, writer):
     serialized = example.SerializeToString()
     # write the serialized object to disk
     writer.write(serialized)
-    
+
 
 def boundWeapon(bagID, view):
     '''
