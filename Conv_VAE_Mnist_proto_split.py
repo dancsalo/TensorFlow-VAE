@@ -22,7 +22,7 @@ import math
 # Global Dictionary of Flags
 flags = {
     'save_directory': 'summaries/',
-    'model_directory': 'conv_vae_semi_split/',
+    'model_directory': 'conv_vae_semi_split_labeled/',
     'train_data_file': 'data/mnist_1000_train.tfrecords',
     'valid_data_file': 'data/mnist_valid.tfrecords',
     'test_data_file': 'data/mnist_test.tfrecords',
@@ -128,7 +128,7 @@ class ConvVae(Model):
 
     def _run_train_summary_iter(self):
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
-        self.summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y, self.optimizer], feed_dict={self.epsilon: self.norm})
+        self.summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y_labeled, self.optimizer], feed_dict={self.epsilon: self.norm})
         correct_prediction = np.equal(np.argmax(true_y, 1), np.argmax(logits, 1))
         self.print_log('Minibatch Accuracy: %.6f' % np.mean(correct_prediction))
 
