@@ -95,7 +95,7 @@ class ConvVae(Model):
             self.eval_x, self.eval_y = self.batch_inputs(mode)
             with tf.variable_scope("model"):
                 _, self.logits_eval = self._encoder(x=self.eval_x)
-            _, _, self.sess, _ = self._set_tf_functions()
+            self.sess = self._define_sess()
             self._initialize_model()
         coord = tf.train.Coordinator()
         threads = list()

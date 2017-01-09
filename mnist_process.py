@@ -7,7 +7,7 @@ import os
 import random
 
 flags = {
-    'labels_list': [100, 300, 500, 1000, 3000, 5000],
+    'labels_list': [1000],
     'data_directory': 'data/',
     'nums': [55000, 10000, 5000],
     'all_names': ["train", "test", "valid"],
@@ -27,8 +27,8 @@ def _bytes_features(value):
 def main():
     all_data, all_labels = load_data()
     make_directory(flags['data_directory'])
-    semi_all_train(flags['labels_list'], all_data, all_labels)
-    # semi_split_train(flags['labels_list'], all_data, all_labels)
+    # semi_all_train(flags['labels_list'], all_data, all_labels)
+    semi_split_train(flags['labels_list'], all_data, all_labels)
 
 def semi_split_train(labels_list, all_data, all_labels):
     for num_labels in labels_list:
