@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 """
-Author: Dan Salo
-Initial Commit: 12/1/2016
+@author: Dan Salo, Jan 2017
 
-Purpose: Implement Convolutional VAE for MNIST dataset to demonstrate NNClasses functionality
+Purpose: Implement Convolutional Variational Autoencoder for Classification of Fully-Labeled MNIST Dataset
+Use mnist_process.py to generate training, validation and test files.
+
 """
 
 import sys
@@ -15,7 +16,6 @@ from TensorBase.tensorbase.base import Layers
 
 import tensorflow as tf
 import numpy as np
-import scipy.misc
 import time
 
 
@@ -44,8 +44,6 @@ class ConvVae(Model):
         super().__init__(flags_input, run_num)
         self.print_log("Seed: %d" % flags['seed'])
         self.print_log('Number of Labeled: %d' % int(labeled))
-        names = ['train','valid','test']
-
 
     def _set_placeholders(self):
         self.train_x, self.train_y = self.batch_inputs("train")

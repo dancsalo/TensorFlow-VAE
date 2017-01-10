@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 """
-Author: Dan Salo
-Initial Commit: 12/1/2016
+@author: Dan Salo, Jan 2017
 
-Purpose: Implement Convolutional VAE for MNIST dataset to demonstrate NNClasses functionality
+Purpose: Implement Convolutional Variational Autoencoder for Semi-Supervision with partially-labeled MNIST dataset.
+Use mnist_process.py to generate training, validation and test files.
+
 """
 
 import sys
@@ -32,7 +33,6 @@ flags = {
     'hidden_size': 64,
     'num_classes': 10,
     'batch_size': 100,
-    'xentropy': 1,
     'display_step': 550,
     'starter_lr': 1e-4,
     'num_epochs': 75,
@@ -48,20 +48,20 @@ class ConvVae(Model):
         self.print_log("Seed: %d" % flags['seed'])
         self.labeled = int(labeled)
         self.print_log('Number of Labeled: %d' % int(labeled))
-        # self.flags['xentropy'] = 0.1 * int(labeled)
-        # self.print_log('Xentropy Multiplicative Factor: %d' % self.flags['xentropy'])
 
     def _set_placeholders(self):
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         self.num_train_images = 55000
         self.num_valid_images = 5000
         self.num_test_images = 10000
+        # Load in training data of batch_size/2, and combine into train_x, train_y of size batch_size
         train_unlabeled_x, train_unlabeled_y = self.batch_inputs("train_unlabeled")
         train_labeled_x, train_labeled_y = self.batch_inputs("train_labeled")
         self.train_x = tf.concat(0, [train_labeled_x, train_unlabeled_x])
         self.train_y = tf.concat(0, [train_labeled_y, train_unlabeled_y])
 
     def _set_summaries(self):
+        """Define summaries for tensorboard"""
         tf.summary.scalar("Total_Loss", self.cost)
         tf.summary.scalar("Reconstruction_Loss", self.recon)
         tf.summary.scalar("VAE_Loss", self.vae)
@@ -72,6 +72,7 @@ class ConvVae(Model):
         tf.summary.image("x_hat", self.x_hat)
 
     def _encoder(self, x):
+        """Define q(z|x) network"""
         encoder = Layers(x)
         encoder.conv2d(5, 32)
         encoder.maxpool()
@@ -81,6 +82,7 @@ class ConvVae(Model):
         return encoder.get_output()
 
     def _decoder(self, z):
+        """Define p(x|z) network"""
         if z is None:
             mean = None
             stddev = None
@@ -89,7 +91,7 @@ class ConvVae(Model):
             input_sample = self.epsilon
         else:
             z = tf.reshape(z, [-1, self.flags['hidden_size'] * 2])
-            mean, stddev = tf.split(1, 2, z)
+            mean, stddev = tf.split(1, 2, z)  # Compute latent variables (z) by calculating mean, stddev
             stddev = tf.sqrt(tf.exp(stddev))
             mlp = Layers(mean)
             mlp.fc(self.flags['num_classes'])
@@ -105,7 +107,7 @@ class ConvVae(Model):
         return decoder.get_output(), mean, stddev, class_predictions, logits
 
     def _network(self):
-        with tf.variable_scope("model") as scope:
+        with tf.variable_scope("model"):
             self.latent = self._encoder(x=self.train_x)
             self.x_hat, self.mean, self.stddev, preds, logits_train = self._decoder(z=self.latent)
             self.preds = preds[0:int(self.flags['batch_size']/2), ]
@@ -294,4 +296,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

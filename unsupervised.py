@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 """
-Author: Dan Salo
-Initial Commit: 12/1/2016
+@author: Dan Salo, Jan 2017
 
-Purpose: Implement Convolutional VAE for MNIST dataset to demonstrate NNClasses functionality
+Purpose: Implement Convolutional Variational Autoencoder for Semi-Supervision with partially-labeled MNIST dataset.
+MNIST Dataset will be downloaded and batched automatically.
+
 """
 
 import sys
@@ -127,11 +128,11 @@ class ConvVae(Model):
             scipy.misc.imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '.png',
                               np.squeeze(self.x_recon[j]))
         self.print_log("Batch Number: " + str(self.step) + ", Image Loss= " + "{:.6f}".format(self.loss))
-        print(self.train_batch_x[j].mean())
+        print(self.train_batch_x[0].mean())
         print(self.x_recon[j].mean())
-        print(self.train_batch_x[j].min())
+        print(self.train_batch_x[0].min())
         print(self.x_recon[j].min())
-        print(self.train_batch_x[j].max())
+        print(self.train_batch_x[0].max())
         print(self.x_recon[j].max())
 
 
