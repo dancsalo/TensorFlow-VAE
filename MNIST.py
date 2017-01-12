@@ -88,7 +88,7 @@ def convert_data_tfrecords(all_data, all_labels, list_num_labels, data_directory
                         num_samples[label_np == 1] += 1
                         examples_labeled.append((pixels, label))
                     else:
-                        label = [0,0,0,0,0,0,0,0,0,0]
+                        label = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
                         examples_unlabeled.append((pixels, label))
                 else:
                     examples.append((pixels, label))

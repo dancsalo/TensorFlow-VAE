@@ -13,6 +13,7 @@ sys.path.append('../')
 
 from TensorBase.tensorbase.base import Model
 from TensorBase.tensorbase.base import Layers
+from TensorBase.tensorbase.base import Data
 
 import tensorflow as tf
 import numpy as np
@@ -40,27 +41,43 @@ flags = {
 }
 
 
-class ConvVae(Model):
+class ConvVaeSemi(Model):
     def __init__(self, flags_input, run_num, labeled):
-        flags_input['train_unlabeled_data_file'] = 'data/mnist_' +str(labeled) + '_train_unlabeled.tfrecords'
+        """ Define the labeled and unlabeled file names. Use queueing and threading I/O. Initialize Model.init()"""
+        flags_input['train_unlabeled_data_file'] = 'data/mnist_' + str(labeled) + '_train_unlabeled.tfrecords'
         flags_input['train_labeled_data_file'] = 'data/mnist_' + str(labeled) + '_train_labeled.tfrecords'
         super().__init__(flags_input, run_num)
-        self.print_log("Seed: %d" % flags['seed'])
         self.labeled = int(labeled)
         self.print_log('Number of Labeled: %d' % int(labeled))
 
-    def _set_placeholders(self):
+    def eval_model_init(self):
+        self.sess.close()
+        tf.reset_default_graph()
+        self.step = 0
+        self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
+        self.flags['restore'] = True
+        self.flags['restore_file'] = 'part_1.ckpt.meta'
+        self.eval_x, self.eval_y = Data.batch_inputs(mode)
+        with tf.variable_scope("model"):
+            self.latent = self._encoder(x=self.eval_x)
+            _, _, _, _, self.logits_eval = self._decoder(z=self.latent)
+        _, _, self.sess, _ = self._set_tf_functions()
+        self._initialize_model()
+
+    def _data(self):
+        """Define data I/O"""
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         self.num_train_images = 55000
         self.num_valid_images = 5000
         self.num_test_images = 10000
         # Load in training data of batch_size/2, and combine into train_x, train_y of size batch_size
-        train_unlabeled_x, train_unlabeled_y = self.batch_inputs("train_unlabeled")
-        train_labeled_x, train_labeled_y = self.batch_inputs("train_labeled")
+        self.data = Data  # Define Data class instance
+        train_unlabeled_x, train_unlabeled_y = Data.batch_inputs("train_unlabeled", percent_labeled=0.5)
+        train_labeled_x, train_labeled_y = Data.batch_inputs("train_labeled", percent_labeled=0.5)
         self.train_x = tf.concat(0, [train_labeled_x, train_unlabeled_x])
         self.train_y = tf.concat(0, [train_labeled_y, train_unlabeled_y])
 
-    def _set_summaries(self):
+    def _summaries(self):
         """Define summaries for tensorboard"""
         tf.summary.scalar("Total_Loss", self.cost)
         tf.summary.scalar("Reconstruction_Loss", self.recon)
@@ -107,6 +124,7 @@ class ConvVae(Model):
         return decoder.get_output(), mean, stddev, class_predictions, logits
 
     def _network(self):
+        """ Define network outputs """
         with tf.variable_scope("model"):
             self.latent = self._encoder(x=self.train_x)
             self.x_hat, self.mean, self.stddev, preds, logits_train = self._decoder(z=self.latent)
@@ -115,6 +133,7 @@ class ConvVae(Model):
             self.train_y_labeled = self.train_y[0:int(self.flags['batch_size']/2)]
 
     def _optimizer(self):
+        """ Define losses and initialize optimizer """
         epsilon = 1e-8
         self.learning_rate = self.flags['starter_lr']
         const_vae = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
@@ -125,60 +144,47 @@ class ConvVae(Model):
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
 
     def _run_train_iter(self):
+        """ Run training iteration """
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         self.summary, _ = self.sess.run([self.merged, self.optimizer], feed_dict={self.epsilon: self.norm})
+        return summary
 
-    def _run_train_summary_iter(self):
+    def _run_train_metrics_iter(self):
+        """ Run training iteration with metrics update """
         self.norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
-        self.summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y_labeled, self.optimizer], feed_dict={self.epsilon: self.norm})
+        summary, self.loss, self.x_recon, self.x_true, logits, true_y, _ = self.sess.run([self.merged, self.cost, self.x_hat, self.train_x, self.logits_train, self.train_y_labeled, self.optimizer], feed_dict={self.epsilon: self.norm})
         correct_prediction = np.equal(np.argmax(true_y, 1), np.argmax(logits, 1))
-        self.print_log('Minibatch Accuracy: %.6f' % np.mean(correct_prediction))
+        self.print_log('Training Minibatch Accuracy: %.6f' % np.mean(correct_prediction))
+        return summary
 
     def run(self, mode):
-        self.step = 0
+        """ Run either train function or eval function """
         if mode != "train":
-            self.sess.close()
-            tf.reset_default_graph()
-            self.results = list()
-            self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
-            self.flags['restore'] = True
-            self.flags['restore_file'] = 'part_1.ckpt.meta'
-            self.eval_x, self.eval_y = self.batch_inputs(mode)
-            with tf.variable_scope("model") as scope:
-                self.latent = self._encoder(x=self.eval_x)
-                _, _, _, _, self.logits_eval = self._decoder(z=self.latent)
-            _, _, self.sess, _ = self._set_tf_functions()
-            self._initialize_model()
-            coord = tf.train.Coordinator()
-            threads = list()
-            for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
-                threads.extend(qr.create_threads(self.sess, coord=coord, daemon=True,start=True))
+            self.eval_model_init()
+            threads, coord = Data.init_threads
             self.eval(coord, mode)
         else:
-            coord = tf.train.Coordinator()
-            threads = list()
-            for qr in tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS):
-                threads.extend(qr.create_threads(self.sess, coord=coord, daemon=True,start=True))
+            threads, coord = Data.init_threads
             self.train()
         self.print_log('Finished ' + mode + ': %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
-        coord.request_stop()  
-        coord.join(threads, stop_grace_period_secs=10)
-    
+        Data.close_threads(threads, coord)
+
     def train(self):
+        """ Run training function. Save model upon completion """
         iterations = math.ceil(self.num_train_images/self.flags['batch_size']) * self.flags['num_epochs']
         self.print_log('Training for %d iterations' % iterations)
         for i in range(iterations):
             if self.step % self.flags['display_step'] != 0:     
-                self._run_train_iter()
-                self._record_training_step()
+                summary = self._run_train_iter()
             else:
-                self._run_train_summary_iter()
-                self._record_training_step()
+                summary = self._run_train_metrics_iter()
                 self._record_train_metrics()
+            self._record_training_step(summary)
             print(self.step)
         self._save_model(section=1)    
     
     def eval(self, coord, mode):
+        """ Run evaluation function. Save accuracy or other metrics upon completion """
         norm = np.random.standard_normal([self.flags['batch_size'], self.flags['hidden_size']])
         try:
             while not coord.should_stop():
@@ -193,103 +199,51 @@ class ConvVae(Model):
             self._record_eval_metrics(mode)    
 
     def _record_train_metrics(self):
+        """ Record training metrics and print to log and terminal """
         for j in range(1):
-            scipy.misc.imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '_' + str(j) +'.png',
+            scipy.misc.imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '_' + str(j) + '.png',
                               np.squeeze(self.x_true[j]))
             scipy.misc.imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '_' + str(j) + '.png',
                               np.squeeze(self.x_recon[j]))
-        print(self.x_true[0].mean())
-        print(self.x_recon[0].mean())
-        print(self.x_true[0].min())
-        print(self.x_recon[0].min())
-        print(self.x_true[0].max())
-        print(self.x_recon[0].max())
         self.print_log('Step %d: loss = %.6f' % (self.step, self.loss))
 
     def _record_eval_metrics(self, mode):
+        """ Record evaluation metrics and print to log and terminal """
         accuracy = np.mean(self.results)
         self.print_log("Accuracy on " + mode + " Set: %f" % accuracy)
         file = open(self.flags['restore_directory'] + mode + '_Accuracy.txt', 'w')
         file.write(mode + 'set accuracy:')
         file.write(str(accuracy))
         file.close()
-    
-    def batch_inputs(self, dataset):
-        with tf.name_scope('batch_processing'):
-            if dataset == "train_unlabeled":
-                filename = self.flags['train_unlabeled_data_file']
-                batch_size = int(self.flags['batch_size'] / 2)
-                epochs = None
-            elif dataset == "train_labeled":
-                filename = self.flags['train_labeled_data_file']
-                batch_size = int(self.flags['batch_size'] / 2)
-                epochs = None
-            elif dataset == "valid":
-                filename = self.flags['valid_data_file']
-                batch_size = self.flags['batch_size']
-                epochs = 1
-            else:  # test data file
-                filename = self.flags['test_data_file']
-                batch_size = self.flags['batch_size']
-                epochs = 1
-            example_serialized = self.queue_setup(filename, epochs, batch_size)
-            images_and_labels = self.thread_setup(example_serialized)
-            image_batch, label_batch = tf.train.batch_join(images_and_labels, batch_size=batch_size, capacity=8 * batch_size)
-            return image_batch, label_batch
 
-    def read_and_decode(self, example_serialized):
+    def read_and_decode_mnist(self, example_serialized):
+        """ Read and decode binarized, raw MNIST dataset from .tfrecords file generated by MNIST.py """
+        num = self.flags['num_classes']
+
+        # Parse features from binary file
         features = tf.parse_single_example(
             example_serialized,
             features={
                 'image': tf.FixedLenFeature([], tf.string),
-                'label': tf.FixedLenFeature([self.flags['num_classes']], tf.int64, default_value=[-1]*self.flags['num_classes']),
+                'label': tf.FixedLenFeature([num], tf.int64, default_value=[-1] * num),
                 'height': tf.FixedLenFeature([], tf.int64),
                 'width': tf.FixedLenFeature([], tf.int64),
                 'depth': tf.FixedLenFeature([], tf.int64),
             })
-        # now return the converted data
+        # Return the converted data
         label = features['label']
         image = tf.decode_raw(features['image'], tf.float32)
         image.set_shape([784])
         image = tf.reshape(image, [28, 28, 1])
         image = (image - 0.5) * 2  # max value = 1, min value = -1
         return image, tf.cast(label, tf.int32)
-    
-    @staticmethod
-    def queue_setup(filename, epochs, batch_size):
-        # Approximate number of examples per shard.
-        examples_per_shard = 1024
-        min_queue_examples = examples_per_shard * 16
-        filename_queue = tf.train.string_input_producer([filename],
-            num_epochs=epochs,shuffle=True,capacity=16)
-        examples_queue = tf.RandomShuffleQueue(capacity=min_queue_examples + 3 *  batch_size,
-            min_after_dequeue=min_queue_examples,
-            dtypes=[tf.string])
-        num_readers=4
-        enqueue_ops = list()
-        for _ in range(num_readers):
-            reader = tf.TFRecordReader()
-            _, value = reader.read(filename_queue)
-            enqueue_ops.append(examples_queue.enqueue([value]))
-        tf.train.queue_runner.add_queue_runner(tf.train.queue_runner.QueueRunner(examples_queue, enqueue_ops))
-        example_serialized = examples_queue.dequeue()
-        return example_serialized
-    
-    def thread_setup(self, example_serialized):
-        images_and_labels = list()
-        num_preprocess_threads=4
-        for _ in range(num_preprocess_threads):
-            # Parse a serialized Example proto to extract the image and metadata.
-            image, label = self.read_and_decode(example_serialized)
-            images_and_labels.append([image, label])
-        return images_and_labels
 
 
 def main():
     flags['seed'] = np.random.randint(1, 1000, 1)[0]
     run_num = sys.argv[1]
     labels = sys.argv[2]
-    model = ConvVae(flags, run_num=run_num, labeled=labels)
+    model = ConvVaeSemi(flags, run_num=run_num, labeled=labels)
     model.run("train")
     model.run("valid")
     model.run("test")
