@@ -36,7 +36,7 @@ flags = {
     'weight_decay': 1e-6,
     'learning_rate': 0.001,
     'epochs': 100,
-    'run_num': 3,
+    'run_num': 1,
 }
 
 
@@ -47,7 +47,7 @@ class ConvVae(Model):
     def _data(self):
         """ Define data I/O """
         self.x = tf.placeholder(tf.float32, [None, flags['image_dim'], flags['image_dim'], 1], name='x')
-        self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon'])
+        self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         self.data = Mnist(self.flags)
 
     def _summaries(self):
@@ -142,23 +142,24 @@ class ConvVae(Model):
 
     def train(self):
         """ Train the autoencoder """
-        for i in range(self.flags['epochs'] * self.data.num_training_images):
-            self.print_log('Learning Rate: %d' % self.learn_rate)
-            self.print_log('Iterations: %d' % self.iters_num)
-            while self.step < self.iters_num:
-                print('Batch number: %d' % self.step)
-                self._generate_train_batch()
-                if self.step % self.flags['display_step'] != 0:
-                    summary = self._run_train_iter()
-                else:
-                    summary = self._run_train_metrics_iter()
-                    self._record_train_metrics()
-                self._record_training_step(summary)
-            self._save_model(section=i)
+        self.print_log('Learning Rate: %d' % self.flags['learning_rate'])
+        iters = self.flags['epochs'] * self.data.num_train_images
+        self.print_log('Iterations: %d' % iters)
+        for i in range(iters):
+            print('Batch number: %d' % self.step)
+            self._generate_train_batch()
+            if self.step % self.flags['display_step'] != 0:
+                summary = self._run_train_iter()
+            else:
+                summary = self._run_train_metrics_iter()
+                self._record_train_metrics()
+            self._record_training_step(summary)
+        self._save_model(section=i)
 
 
 def main():
     flags['seed'] = np.random.randint(1, 1000, 1)[0]
+    flags['run_num'] = sys.argv[1]
     model_vae = ConvVae(flags, run_num=flags['run_num'])
     model_vae.train()
 

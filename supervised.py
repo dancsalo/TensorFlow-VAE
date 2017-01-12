@@ -11,12 +11,11 @@ Use mnist_process.py to generate training, validation and test files.
 import sys
 sys.path.append('../')
 
-from TensorBase.tensorbase.base import Model
-from TensorBase.tensorbase.base import Layers
+from TensorBase.tensorbase.base import Model, Layers, Data
 
 import tensorflow as tf
 import numpy as np
-import time
+import math
 
 
 # Global Dictionary of Flags
@@ -52,7 +51,7 @@ class Conv(Model):
         self.flags['restore'] = True
         self.flags['restore_file'] = 'part_1.ckpt.meta'
         file = self.flags['test_data_file']
-        self.eval_x, self.eval_y = Data.batch_inputs(read_and_decode, file, self.flags['batch_size'], mode="eval")
+        self.eval_x, self.eval_y = Data.batch_inputs(self.read_and_decode, file, self.flags['batch_size'], mode="eval")
         with tf.variable_scope("model"):
             _, self.logits_eval = self._encoder(x=self.eval_x)
         self.sess = self._define_sess()
@@ -61,7 +60,7 @@ class Conv(Model):
     def _data(self):
         """ Define data and batching """
         file = self.flags['train_data_file']
-        self.train_x, self.train_y = Data.batch_inputs(read_and_decode, file, self.flags['batch_size'])
+        self.train_x, self.train_y = Data.batch_inputs(self.read_and_decode, file, self.flags['batch_size'])
         self.num_train_images = 55000
         self.num_valid_images = 5000
         self.num_test_images = 10000
@@ -109,10 +108,10 @@ class Conv(Model):
         """ Run either train function or eval function """
         if mode != "train":
             self.eval_model_init()
-            threads, coord = Data.init_threads
+            threads, coord = Data.init_threads(self.sess)
             self.eval(coord, mode)
         else:
-            threads, coord = Data.init_threads
+            threads, coord = Data.init_threads(self.sess)
             self.train()
         self.print_log('Finished ' + mode + ': %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
         Data.close_threads(threads, coord)
