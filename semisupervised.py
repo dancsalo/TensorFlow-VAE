@@ -8,14 +8,11 @@ Use mnist_process.py to generate training, validation and test files.
 
 """
 
+from tensorbase.base import Data, Model, Layers
+
 import sys
-sys.path.append('../')
-
-from TensorBase.tensorbase.base import Model, Layers, Data
-
 import tensorflow as tf
 import numpy as np
-import scipy.misc
 import math
 
 
@@ -167,7 +164,7 @@ class ConvVaeSemi(Model):
             threads, coord = Data.init_threads(self.sess)
             self.train()
         self.print_log('Finished ' + mode + ': %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
-        Data.close_threads(threads, coord)
+        Data.exit_threads(threads, coord)
 
     def train(self):
         """ Run training function. Save model upon completion """

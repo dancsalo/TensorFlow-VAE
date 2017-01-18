@@ -8,16 +8,12 @@ MNIST Dataset will be downloaded and batched automatically.
 
 """
 
+from tensorbase.base import Data, Model, Layers
+
 import sys
-sys.path.append('../')
-
-from TensorBase.tensorbase.base import Model
-from TensorBase.tensorbase.base import Layers
-from TensorBase.tensorbase.data import Mnist
-
 import tensorflow as tf
 import numpy as np
-import scipy.misc
+import math
 
 
 # Global Dictionary of Flags

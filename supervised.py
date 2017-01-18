@@ -8,11 +8,9 @@ Use mnist_process.py to generate training, validation and test files.
 
 """
 
+from tensorbase.base import Data, Model, Layers
+
 import sys
-sys.path.append('../')
-
-from TensorBase.tensorbase.base import Model, Layers, Data
-
 import tensorflow as tf
 import numpy as np
 import math
@@ -91,7 +89,7 @@ class Conv(Model):
         """ Define losses and initialize optimizer """
         self.learning_rate = self.flags['starter_lr']
         const = 1/(self.flags['batch_size'] * self.flags['image_dim'] * self.flags['image_dim'])
-        self.cost = const * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(self.y_hat, self.train_y, name='xentropy'))
+        self.cost = const * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=self.train_y, logits=self.y_hat, name='xentropy'))
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
 
     def _run_train_iter(self):
@@ -114,7 +112,7 @@ class Conv(Model):
             threads, coord = Data.init_threads(self.sess)
             self.train()
         self.print_log('Finished ' + mode + ': %d epochs, %d steps.' % (self.flags['num_epochs'], self.step))
-        Data.close_threads(threads, coord)
+        Data.exit_threads(threads, coord)
 
     def train(self):
         """ Run training function. Save model upon completion """

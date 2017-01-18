@@ -22,27 +22,28 @@ import random
 
 
 # Global Flag Dictionary
-flags = {
-    'data_directory': 'data/',
-    'nums': [55000, 10000, 5000],
-    'all_names': ["train", "test", "valid"],
-    'num_classes': 10
-}
-
-
 def main():
     """Downloads and Converts MNIST dataset to four .tfrecords files (train_labeled, train_unlabeled, valid, test)
     Takes variable number of labels."""
 
     # Parse Arguments
     parser = argparse.ArgumentParser(description='Short sample app')
-    list_num_labels = parser.add_argument('-l', action="store", default=[1000])
-    data_directory = parser.add_argument('-d', action="store", default='data/')
+    parser.add_argument('-l', '--label_list', nargs='+', type=int, default=[1000])
+    parser.add_argument('-d', '--dir', default='data/')
+    args = vars(parser.parse_args())
 
     # Load and Convert Data
     all_data, all_labels = load_data()
-    make_directory(data_directory)
-    convert_data_tfrecords(all_data, all_labels, list_num_labels, data_directory)
+    make_directory(args['dir'])
+    convert_data_tfrecords(all_data, all_labels, args['label_list'], args['dir'])
+
+
+flags = {
+    'data_directory': 'data/',
+    'nums': [55000, 10000, 5000],
+    'all_names': ["train", "test", "valid"],
+    'num_classes': 10
+}
 
 
 def convert_data_tfrecords(all_data, all_labels, list_num_labels, data_directory):
@@ -77,7 +78,7 @@ def convert_data_tfrecords(all_data, all_labels, list_num_labels, data_directory
                                                      name + ".tfrecords")
 
             # Iterate over each example
-            for example_idx in tqdm(range(flags['nums'][d])):
+            for example_idx in range(flags['nums'][d]):
                 pixels = data[example_idx].tostring()
                 label_np = labels[example_idx].astype("int32")
                 label = label_np.tolist()
@@ -138,6 +139,7 @@ def aux_convert_tfrecords(all_data, all_labels, list_num_labels, data_directory)
 
             # Iterate over each example and append to list
             for example_idx in range(flags['nums'][d]):
+
                 pixels = data[example_idx].tostring()
                 label_np = labels[example_idx].astype("int32")
                 label = label_np.tolist()
