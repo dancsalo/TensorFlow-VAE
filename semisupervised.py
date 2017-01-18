@@ -9,6 +9,7 @@ Use mnist_process.py to generate training, validation and test files.
 """
 
 from tensorbase.base import Data, Model, Layers
+from scipy.misc import imsave
 
 import sys
 import tensorflow as tf
@@ -49,7 +50,7 @@ class ConvVaeSemi(Model):
     def eval_model_init(self):
         self.sess.close()
         tf.reset_default_graph()
-        self.step = 0
+        self.step = 1
         self.epsilon = tf.placeholder(tf.float32, [None, flags['hidden_size']], name='epsilon')
         self.flags['restore'] = True
         self.flags['restore_file'] = 'part_1.ckpt.meta'
@@ -198,10 +199,8 @@ class ConvVaeSemi(Model):
     def _record_train_metrics(self):
         """ Record training metrics and print to log and terminal """
         for j in range(1):
-            scipy.misc.imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '_' + str(j) + '.png',
-                              np.squeeze(self.x_true[j]))
-            scipy.misc.imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '_' + str(j) + '.png',
-                              np.squeeze(self.x_recon[j]))
+            imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '_' + str(j) + '.png', np.squeeze(self.x_true[j]))
+            imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '_' + str(j) + '.png', np.squeeze(self.x_recon[j]))
         self.print_log('Step %d: loss = %.6f' % (self.step, self.loss))
 
     def _record_eval_metrics(self, mode):

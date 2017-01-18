@@ -8,7 +8,9 @@ MNIST Dataset will be downloaded and batched automatically.
 
 """
 
-from tensorbase.base import Data, Model, Layers
+from tensorbase.base import Model, Layers
+from tensorbase.data import Mnist
+from scipy.misc import imsave
 
 import sys
 import tensorflow as tf
@@ -130,10 +132,8 @@ class ConvVae(Model):
     def _record_train_metrics(self):
         """ Record training metrics """
         for j in range(1):
-            scipy.misc.imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '.png',
-                              np.squeeze(self.train_batch_x[j]))
-            scipy.misc.imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '.png',
-                              np.squeeze(self.x_recon[j]))
+            imsave(self.flags['restore_directory'] + 'x_' + str(self.step) + '.png', np.squeeze(self.train_batch_x[j]))
+            imsave(self.flags['restore_directory'] + 'x_recon_' + str(self.step) + '.png', np.squeeze(self.x_recon[j]))
         self.print_log("Batch Number: " + str(self.step) + ", Image Loss= " + "{:.6f}".format(self.loss))
 
     def train(self):
